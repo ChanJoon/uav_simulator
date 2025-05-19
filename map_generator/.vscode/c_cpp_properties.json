@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/devel/include/**",
+        "/usr/local/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/gpp/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/uav_simulator/Utils/multi_map_server/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/peacock_planner/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/plan_manager/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/uav_simulator/Utils/pose_utils/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/uav_simulator/Utils/quadrotor_msgs/include/**",
+        "/home/as06047/ros_workspaces/ROS1/catkin_make_ws/microswarm_gpp/src/uav_simulator/Utils/uav_utils/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
