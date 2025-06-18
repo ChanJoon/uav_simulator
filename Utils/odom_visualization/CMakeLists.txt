@@ -128,10 +128,14 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES irobot_msgs
-#  CATKIN_DEPENDS geometry_msgs nav_msgs
-#  DEPENDS system_lib
+  CATKIN_DEPENDS
+    roscpp
+    sensor_msgs
+    nav_msgs
+    visualization_msgs
+    quadrotor_msgs
+    tf
+    pose_utils
 )
 
 ###########
@@ -164,7 +168,6 @@ add_executable(odom_visualization src/odom_visualization.cpp)
 target_link_libraries(odom_visualization
    ${catkin_LIBRARIES}
    ${ARMADILLO_LIBRARIES}
-   pose_utils
 )
 
 #############
