@@ -1,5 +1,5 @@
 #include <iostream>
-#include <string>
+#include <string.h>
 #include "ros/ros.h"
 #include "tf/transform_broadcaster.h"
 #include "nav_msgs/Odometry.h"
@@ -10,14 +10,13 @@
 #include "visualization_msgs/Marker.h"
 #include "armadillo"
 #include "pose_utils.h"
-#include "quadrotor_msgs/PositionCommand.h"
 
 using namespace arma;
 using namespace std;
 
 static  string mesh_resource;
-static double color_r, color_g, color_b, color_a, cov_scale, scale;
-
+static  string frame_id;
+static double color_r, color_g, color_b, color_a, cov_scale;
 bool   cross_config = false;
 bool   tf45       = false;
 bool   cov_pos    = false;
@@ -28,7 +27,6 @@ bool   isOriginSet  = false;
 colvec poseOrigin(6);
 ros::Publisher posePub;
 ros::Publisher pathPub;
-ros::Publisher ApathPub;
 ros::Publisher velPub;
 ros::Publisher covPub;
 ros::Publisher covVelPub;
@@ -39,7 +37,6 @@ ros::Publisher heightPub;
 tf::TransformBroadcaster* broadcaster;
 geometry_msgs::PoseStamped poseROS;
 nav_msgs::Path             pathROS;
-nav_msgs::Path             ApathROS;
 visualization_msgs::Marker velROS;
 visualization_msgs::Marker covROS;
 visualization_msgs::Marker covVelROS;
@@ -47,28 +44,22 @@ visualization_msgs::Marker trajROS;
 visualization_msgs::Marker sensorROS;
 visualization_msgs::Marker meshROS;
 sensor_msgs::Range         heightROS;
-string _frame_id;
-int _drone_id;
 
 void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
 {
-  static int aerial_cnt = 0;
   if (msg->header.frame_id == string("null"))
     return;
-
   colvec pose(6);  
   pose(0) = msg->pose.pose.position.x;
   pose(1) = msg->pose.pose.position.y;
   pose(2) = msg->pose.pose.position.z;
   colvec q(4);
-
   q(0)    = msg->pose.pose.orientation.w;
   q(1)    = msg->pose.pose.orientation.x;
   q(2)    = msg->pose.pose.orientation.y;
   q(3)    = msg->pose.pose.orientation.z;
   pose.rows(3,5) = R_to_ypr(quaternion_to_R(q));
   colvec vel(3);
-
   vel(0) = msg->twist.twist.linear.x;
   vel(1) = msg->twist.twist.linear.y;
   vel(2) = msg->twist.twist.linear.z;  
@@ -88,7 +79,7 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   // Pose
   poseROS.header = msg->header;
   poseROS.header.stamp = msg->header.stamp;
-  poseROS.header.frame_id = string("world");
+  poseROS.header.frame_id = frame_id;
   poseROS.pose.position.x = pose(0);
   poseROS.pose.position.y = pose(1);
   poseROS.pose.position.z = pose(2);
@@ -105,7 +96,7 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   yprVel(1) = -atan2(vel(2), norm(vel.rows(0,1),2));
   yprVel(2) = 0;
   q = R_to_quaternion(ypr_to_R(yprVel));    
-  velROS.header.frame_id = string("world");
+  velROS.header.frame_id = frame_id;
   velROS.header.stamp = msg->header.stamp;
   velROS.ns = string("velocity");
   velROS.id = 0;
@@ -133,31 +124,8 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   {
     prevt = msg->header.stamp;
     pathROS.header = poseROS.header;
-    if(pose(2) <= 0.1){
-      if(aerial_cnt % 20 == 0){
-        pathROS.poses.push_back(poseROS);
-        pathPub.publish(pathROS);
-      }
-      aerial_cnt++;
-    }
-    else{
-        pathROS.poses.push_back(poseROS);
-        pathPub.publish(pathROS);
-    }
-
-
-    // if(poseROS.pose.position.z < 0.15){
-    // prevt = msg->header.stamp;
-    // pathROS.header = poseROS.header;
-    // pathROS.poses.push_back(poseROS);
-    // pathPub.publish(pathROS);
-    // }
-    // else{
-    // prevt = msg->header.stamp;
-    // ApathROS.header = poseROS.header;
-    // ApathROS.poses.push_back(poseROS);
-    // ApathPub.publish(pathROS);
-    // }
+    pathROS.poses.push_back(poseROS);
+    pathPub.publish(pathROS);
   }
 
   // Covariance color
@@ -197,7 +165,7 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
         }
       }
     }
-    covROS.header.frame_id = string("world");
+    covROS.header.frame_id = frame_id;
     covROS.header.stamp = msg->header.stamp;
     covROS.ns = string("covariance");
     covROS.id = 0;
@@ -246,7 +214,7 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
         }
       }
     }
-    covVelROS.header.frame_id = string("world");
+    covVelROS.header.frame_id = frame_id;
     covVelROS.header.stamp = msg->header.stamp;
     covVelROS.ns = string("covariance_velocity");
     covVelROS.id = 0;
@@ -274,72 +242,50 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   static colvec ppose = pose;
   static ros::Time pt = msg->header.stamp;
   ros::Time t = msg->header.stamp;
-  // if ((t - pt).toSec() > 0.5)
-  if(1)
+  if ((t - pt).toSec() > 0.5)
   {
-    trajROS.header.frame_id = string("world");
+    trajROS.header.frame_id = frame_id;
     trajROS.header.stamp    = ros::Time::now();
     trajROS.ns              = string("trajectory");
-    trajROS.type            = visualization_msgs::Marker::SPHERE_LIST;
+    trajROS.type            = visualization_msgs::Marker::LINE_LIST;
     trajROS.action          = visualization_msgs::Marker::ADD;  
-    // trajROS.pose.position.x    = 0;
-    // trajROS.pose.position.y    = 0;
-    // trajROS.pose.position.z    = 0;  
+    trajROS.pose.position.x    = 0;
+    trajROS.pose.position.y    = 0;
+    trajROS.pose.position.z    = 0;  
     trajROS.pose.orientation.w = 1;  
     trajROS.pose.orientation.x = 0;  
     trajROS.pose.orientation.y = 0;  
     trajROS.pose.orientation.z = 0;
     trajROS.scale.x = 0.1;
-    trajROS.scale.y = 0.1;
-    trajROS.scale.z = 0.1;
+    trajROS.scale.y = 0;
+    trajROS.scale.z = 0;
     trajROS.color.r = 0.0;
     trajROS.color.g = 1.0;
     trajROS.color.b = 0.0;
-    trajROS.color.a = 1.0;  
+    trajROS.color.a = 0.8;  
     geometry_msgs::Point p;          
     p.x = ppose(0);
     p.y = ppose(1);
     p.z = ppose(2);
-
+    trajROS.points.push_back(p);   
     p.x = pose(0);
     p.y = pose(1);
-    p.z = pose(2);    
-
-    if(pose(2) <= 0.2){
-        if(aerial_cnt % 10 == 0){
-        trajROS.points.push_back(p);  
-        std_msgs::ColorRGBA color;
-        color.r = 0;
-        color.g = 0;
-        color.b = 1;
-        color.a = 1;
-        trajROS.colors.push_back(color);
-        // trajROS.colors.push_back(color);
-        ppose = pose;
-        pt = t;
-        trajPub.publish(trajROS);    
-      }
-      aerial_cnt++;
-    }
-    else{
-      trajROS.points.push_back(p);   
-      std_msgs::ColorRGBA color;
-      color.r = 0;
-      color.g = 0;
-      color.b = 1;
-      color.a = 1;
-      trajROS.colors.push_back(color);
-      // trajROS.colors.push_back(color);
-      ppose = pose;
-      pt = t;
-      trajPub.publish(trajROS);       
-    }
-
-    
+    p.z = pose(2);
+    trajROS.points.push_back(p);    
+    std_msgs::ColorRGBA color;
+    color.r = r;
+    color.g = g;
+    color.b = b;
+    color.a = 1;
+    trajROS.colors.push_back(color);
+    trajROS.colors.push_back(color);
+    ppose = pose;
+    pt = t;
+    trajPub.publish(trajROS);
   }
 
   // Sensor availability
-  sensorROS.header.frame_id = string("world");
+  sensorROS.header.frame_id = frame_id;
   sensorROS.header.stamp    = msg->header.stamp;
   sensorROS.ns              = string("sensor");
   sensorROS.type            = visualization_msgs::Marker::TEXT_VIEW_FACING;
@@ -374,13 +320,12 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   heightPub.publish(heightROS);
 
   // Mesh model                                                  
-  meshROS.header.frame_id = _frame_id;
+  meshROS.header.frame_id = frame_id;
   meshROS.header.stamp = msg->header.stamp; 
   meshROS.ns = "mesh";
   meshROS.id = 0;
   meshROS.type = visualization_msgs::Marker::MESH_RESOURCE;
   meshROS.action = visualization_msgs::Marker::ADD;
-  meshROS.mesh_use_embedded_materials = true;
   meshROS.pose.position.x = msg->pose.pose.position.x;
   meshROS.pose.position.y = msg->pose.pose.position.y;
   meshROS.pose.position.z = msg->pose.pose.position.z;
@@ -398,17 +343,13 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
   meshROS.pose.orientation.x = q(1);
   meshROS.pose.orientation.y = q(2);
   meshROS.pose.orientation.z = q(3);
-  meshROS.scale.x = scale;
-  meshROS.scale.y = scale;
-  meshROS.scale.z = scale;
+  meshROS.scale.x = 1.5;
+  meshROS.scale.y = 1.5;
+  meshROS.scale.z = 1.5;
   meshROS.color.a = color_a;
   meshROS.color.r = color_r;
   meshROS.color.g = color_g;
   meshROS.color.b = color_b;
-  // meshROS.color.a = 0;
-  // meshROS.color.r = 0;
-  // meshROS.color.g = 0;
-  // meshROS.color.b = 0;
   meshROS.mesh_resource = mesh_resource;
   meshPub.publish(meshROS);                                                  
 
@@ -433,65 +374,11 @@ void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
     colvec q90 = R_to_quaternion(ypr_to_R(p90));  
     transform90.setRotation(tf::Quaternion(q90(1), q90(2), q90(3), q90(0)));  
 
-    string base_s   = _drone_id == -1 ? string("base")   : string("base")  +std::to_string(_drone_id);
-    string laser_s  = _drone_id == -1 ? string("laser")  : string("laser") +std::to_string(_drone_id);
-    string vision_s = _drone_id == -1 ? string("vision") : string("vision")+std::to_string(_drone_id);
-    string height_s = _drone_id == -1 ? string("height") : string("height")+std::to_string(_drone_id);
-
-
-    broadcaster->sendTransform(tf::StampedTransform(transform,   msg->header.stamp, string("world"), base_s));      
-    broadcaster->sendTransform(tf::StampedTransform(transform45, msg->header.stamp, base_s, laser_s));          
-    broadcaster->sendTransform(tf::StampedTransform(transform45, msg->header.stamp, base_s, vision_s));          
-    broadcaster->sendTransform(tf::StampedTransform(transform90, msg->header.stamp, base_s, height_s));          
+    broadcaster->sendTransform(tf::StampedTransform(transform,   msg->header.stamp, frame_id,  string("/base")));      
+    broadcaster->sendTransform(tf::StampedTransform(transform45, msg->header.stamp, string("/base"), string("/laser")));          
+    broadcaster->sendTransform(tf::StampedTransform(transform45, msg->header.stamp, string("/base"), string("/vision")));          
+    broadcaster->sendTransform(tf::StampedTransform(transform90, msg->header.stamp, string("/base"), string("/height")));          
   } 
-}
-
-void cmd_callback(const quadrotor_msgs::PositionCommand cmd)
-{   
-  if (cmd.header.frame_id == string("null"))
-    return;
-  
-  colvec pose(6);  
-  pose(0) = cmd.position.x;
-  pose(1) = cmd.position.y;
-  pose(2) = cmd.position.z;
-  colvec q(4);
-  q(0)    = 1.0;
-  q(1)    = 0.0;
-  q(2)    = 0.0;
-  q(3)    = 0.0;
-  pose.rows(3,5) = R_to_ypr(quaternion_to_R(q));
-  
-  // Mesh model                                                  
-  meshROS.header.frame_id = _frame_id;
-  meshROS.header.stamp = cmd.header.stamp; 
-  meshROS.ns = "mesh";
-  meshROS.id = 0;
-  meshROS.type = visualization_msgs::Marker::MESH_RESOURCE;
-  meshROS.action = visualization_msgs::Marker::ADD;
-  meshROS.pose.position.x = cmd.position.x;
-  meshROS.pose.position.y = cmd.position.y;
-  meshROS.pose.position.z = cmd.position.z;
- 
-  if (cross_config)
-  {
-    colvec ypr = R_to_ypr(quaternion_to_R(q));
-    ypr(0)    += 45.0*PI/180.0;
-    q          = R_to_quaternion(ypr_to_R(ypr)); 
-  }  
-  meshROS.pose.orientation.w = q(0);
-  meshROS.pose.orientation.x = q(1);
-  meshROS.pose.orientation.y = q(2);
-  meshROS.pose.orientation.z = q(3);
-  meshROS.scale.x = 2.0;
-  meshROS.scale.y = 2.0;
-  meshROS.scale.z = 2.0;
-  meshROS.color.a = color_a;
-  meshROS.color.r = color_r;
-  meshROS.color.g = color_g;
-  meshROS.color.b = color_b;
-  meshROS.mesh_resource = mesh_resource;
-  meshPub.publish(meshROS);                                                  
 }
 
 int main(int argc, char** argv)
@@ -499,31 +386,23 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "odom_visualization");
   ros::NodeHandle n("~");
 
-  // n.param("mesh_resource", mesh_resource, std::string("package://odom_visualization/meshes/hybrid_quadrotor.dae"));
-  n.param("mesh_resource", mesh_resource, std::string("package://odom_visualization/meshes/TABV.dae"));
-
+  n.param("mesh_resource", mesh_resource, std::string("package://odom_visualization/meshes/hummingbird.mesh"));
   n.param("color/r", color_r, 1.0);
   n.param("color/g", color_g, 0.0);
   n.param("color/b", color_b, 0.0);
   n.param("color/a", color_a, 1.0);
   n.param("origin", origin, false);  
-  n.param("robot_scale", scale, 2.0);    
-  n.param("frame_id",   _frame_id, string("world") ); 
- 
   n.param("cross_config", cross_config, false);    
   n.param("tf45", tf45, false);    
   n.param("covariance_scale",    cov_scale,  100.0);
   n.param("covariance_position", cov_pos,    false);    
   n.param("covariance_velocity", cov_vel,    false);    
-  n.param("covariance_color",    cov_color,  false);  
-  n.param("drone_id",   _drone_id, -1);   
+  n.param("covariance_color",    cov_color,  false);    
+  n.param("frame_id", frame_id, string("world"));
   
-  // ros::Subscriber sub_odom = n.subscribe("/ekf/ekf_odom", 100,  odom_callback);
-  ros::Subscriber sub_odom = n.subscribe("odom", 100,  odom_callback);
-  ros::Subscriber sub_cmd  = n.subscribe("cmd",  100,  cmd_callback);
+  ros::Subscriber sub = n.subscribe("odom",  100,  odom_callback);
   posePub   = n.advertise<geometry_msgs::PoseStamped>("pose",                100, true);
   pathPub   = n.advertise<nav_msgs::Path>(            "path",                100, true);
-  ApathPub   = n.advertise<nav_msgs::Path>(            "aerialpath",                100, true);
   velPub    = n.advertise<visualization_msgs::Marker>("velocity",            100, true);
   covPub    = n.advertise<visualization_msgs::Marker>("covariance",          100, true);
   covVelPub = n.advertise<visualization_msgs::Marker>("covariance_velocity", 100, true);
